@@ -1,0 +1,137 @@
+!pip install -q transformers datasets timm torchvision
+
+import torch
+import torchvision
+import timm
+from transformers import ViTFeatureExtractor, ViTForImageClassification
+
+print("All libraries imported successfully!")
+
+
+import torch
+from transformers import ViTForImageClassification, ViTFeatureExtractor
+from torchvision.transforms import Compose, Resize, ToTensor, Normalize
+from PIL import Image
+import numpy as np
+
+# Check GPU availability
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
+
+
+
+from google.colab import drive
+drive.mount('/content/drive')
+
+
+!cp /content/drive/MyDrive/colabprog2/archive.zip .
+
+
+import os
+print(os.listdir("dataset"))
+
+import zipfile
+
+with zipfile.ZipFile('/content/drive/MyDrive/colabprog2/archive.zip', 'r') as zip_ref:
+    zip_ref.extractall('/content/butterfly_dataset')
+
+
+import os
+
+train_dir = '/content/butterfly_dataset/train'
+valid_dir = '/content/butterfly_dataset/valid'
+test_dir = '/content/butterfly_dataset/test'
+
+print("Train classes:", len(os.listdir(train_dir)))
+print("Valid classes:", len(os.listdir(valid_dir)))
+print("Test classes:", len(os.listdir(test_dir)))
+
+
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+train_data = datasets.ImageFolder(train_dir, transform=transform)
+valid_data = datasets.ImageFolder(valid_dir, transform=transform)
+test_data = datasets.ImageFolder(test_dir, transform=transform)
+
+train_loader = DataLoader(train_data, batch_size=32, shuffle=True)
+valid_loader = DataLoader(valid_data, batch_size=32, shuffle=False)
+test_loader = DataLoader(test_data, batch_size=32, shuffle=False)
+
+print("Loaded data successfully.")
+
+from transformers import ViTForImageClassification
+from torch.optim import AdamW
+import torch
+
+model = ViTForImageClassification.from_pretrained(
+    "google/vit-base-patch16-224-in21k",
+    num_labels=len(train_data.classes)
+)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
+
+optimizer = AdamW(model.parameters(), lr=1e-5)
+loss_fn = torch.nn.CrossEntropyLoss()
+
+
+epochs = 3
+best_accuracy = 0.0
+
+for epoch in range(epochs):
+    model.train()
+    running_loss = 0.0
+    correct_predictions = 0
+    total_predictions = 0
+
+    for imgs, labels in train_loader:
+        imgs, labels = imgs.to(device), labels.to(device)
+
+        optimizer.zero_grad()
+        outputs = model(imgs).logits
+        loss = loss_fn(outputs, labels)
+
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item()
+        _, preds = torch.max(outputs, dim=1)
+        correct_predictions += (preds == labels).sum().item()
+        total_predictions += labels.size(0)
+
+    epoch_loss = running_loss / len(train_loader)
+    epoch_accuracy = correct_predictions / total_predictions
+    print(f"Epoch {epoch+1}/{epochs}")
+    print(f"Train Loss: {epoch_loss:.4f}, Accuracy: {epoch_accuracy:.4f}")
+
+    if epoch_accuracy > best_accuracy:
+        best_accuracy = epoch_accuracy
+        torch.save(model.state_dict(), "best_vit_model.pth")
+        print("✅ Model saved.")
+
+
+model.eval()
+correct, total = 0, 0
+
+with torch.no_grad():
+    for imgs, labels in test_loader:
+        imgs, labels = imgs.to(device), labels.to(device)
+        outputs = model(imgs).logits
+        preds = outputs.argmax(dim=1)
+        correct += (preds == labels).sum().item()
+        total += labels.size(0)
+
+print(f"🎯 Test Accuracy: {correct / total:.4f}")
+import os
+print(os.listdir())
+
+
+from google.colab import files
+files.download('best_vit_model.pth')
