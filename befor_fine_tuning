@@ -1,0 +1,70 @@
+!pip install -q transformers datasets timm torchvision
+
+import torch
+from transformers import ViTFeatureExtractor, ViTForImageClassification
+from torch.utils.data import DataLoader, Dataset
+from torchvision.datasets import ImageFolder
+import os
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
+
+
+from google.colab import drive
+drive.mount('/content/drive')
+
+
+import zipfile
+
+with zipfile.ZipFile('/content/drive/MyDrive/colabprog2/archive.zip', 'r') as zip_ref:
+    zip_ref.extractall('/content/butterfly_dataset')
+
+
+print(os.listdir('/content/butterfly_dataset/test'))
+
+
+feature_extractor = ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224-in21k")
+
+num_classes = len(os.listdir('/content/butterfly_dataset/train'))
+
+model = ViTForImageClassification.from_pretrained(
+    "google/vit-base-patch16-224-in21k",
+    num_labels=num_classes
+)
+model.to(device)
+model.eval()
+
+
+from PIL import Image
+
+class ViTDataset(Dataset):
+    def __init__(self, root_dir):
+        self.dataset = ImageFolder(root_dir)
+    def __len__(self):
+        return len(self.dataset)
+    def __getitem__(self, idx):
+        image, label = self.dataset[idx]
+        inputs = feature_extractor(images=image, return_tensors="pt")
+        pixel_values = inputs['pixel_values'].squeeze()
+        return pixel_values, label
+
+
+test_dataset = ViTDataset('/content/butterfly_dataset/test')
+test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+
+
+correct = 0
+total = 0
+
+with torch.no_grad():
+    for pixel_values, labels in test_loader:
+        pixel_values = pixel_values.to(device)
+        labels = labels.to(device)
+
+        outputs = model(pixel_values).logits
+        preds = outputs.argmax(dim=1)
+
+        correct += (preds == labels).sum().item()
+        total += labels.size(0)
+
+print(f"Test Accuracy before fine-tuning: {correct / total:.4f}")
